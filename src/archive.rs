@@ -1,10 +1,9 @@
-use std::default::Default;
 use std::ffi::{CStr, CString};
-use std::path::PathBuf;
 use std::str;
+use std::{default::Default, path::Path};
 
-use libarchive3_sys::ffi;
 use error::ErrCode;
+use libarchive3_sys::ffi;
 
 pub enum ReadCompression {
     All,
@@ -103,97 +102,150 @@ pub enum FileType {
     RegularFile,
 }
 
+/// The trait representing a handle to a libarchive archive.
+///
+/// # Safety
+/// Implementors of this trait **must** call the function to free the handle before they go out of
+/// scope. I'd recommend using the `Drop` trait for this.
 pub trait Handle {
-    unsafe fn handle(&self) -> *mut ffi::Struct_archive;
+    /// Returns a *const to the interal `archive` c struct
+    ///
+    /// # Safety
+    /// This pointer dangles once the `archive` has been deallocated.
+    unsafe fn handle(&self) -> *const ffi::Struct_archive;
+
+    /// Returns a *mut to the interal `archive` c struct
+    ///
+    /// # Safety
+    /// This pointer dangles once the `archive` has been deallocated.
+    unsafe fn handle_mut(&mut self) -> *mut ffi::Struct_archive;
 
     fn err_code(&self) -> ErrCode {
-        let code = unsafe { ffi::archive_errno(self.handle()) };
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        let code = unsafe { ffi::archive_errno(self.handle() as *mut _) };
         ErrCode(code)
     }
 
     fn err_msg(&self) -> String {
-        unsafe {
-            let c_str = CStr::from_ptr(ffi::archive_error_string(self.handle()));
-            let buf = c_str.to_bytes();
-            String::from(str::from_utf8(buf).unwrap())
-        }
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        let c_str = unsafe { CStr::from_ptr(ffi::archive_error_string(self.handle() as *mut _)) };
+        c_str.to_str().map(|x| x.to_owned()).unwrap()
     }
 }
 
+/// The trait representing an `archive_entry`
 pub trait Entry {
-    unsafe fn entry(&self) -> *mut ffi::Struct_archive_entry;
+    /// Gives a *const to the internal `archive_entry` c struct
+    ///
+    /// # Safety
+    /// Implementors of this trait must also implement Handle. The pointer returned here points
+    /// into the archive struct. As lifetimes are not capable of expressing self-referential
+    /// structs (yet?) this must all be unsafe. This pointer dangles if the `archive` struct held
+    /// by the implementor of `Handle` is deallocated.
+    ///
+    /// Most (all?) of the functions in libarchive take `T*`, not `const T*`, so this *const will
+    /// probably have to be cast to a *mut to use it. Do not pass that *mut to a function that may
+    /// modify it, as that is UB.
+    unsafe fn entry(&self) -> *const ffi::Struct_archive_entry;
+
+    /// Gives a *mut to the internal `archive_entry` c struct.
+    ///
+    /// # Safety
+    /// The pointer returned here points into the archive struct. As lifetimes are not capable of
+    /// expressing self-referential structs (yet?) this must all be unsafe. This pointer dangles
+    /// if the `archive` struct held by the implementor of `Handle` is deallocated.
+    unsafe fn entry_mut(&mut self) -> *mut ffi::Struct_archive_entry;
 
     fn filetype(&self) -> FileType {
-        unsafe {
-            match ffi::archive_entry_filetype(self.entry()) as u32 {
-                ffi::AE_IFBLK => FileType::BlockDevice,
-                ffi::AE_IFCHR => FileType::CharacterDevice,
-                ffi::AE_IFLNK => FileType::SymbolicLink,
-                ffi::AE_IFDIR => FileType::Directory,
-                ffi::AE_IFIFO => FileType::NamedPipe,
-                ffi::AE_IFMT => FileType::Mount,
-                ffi::AE_IFREG => FileType::RegularFile,
-                ffi::AE_IFSOCK => FileType::Socket,
-                code => unreachable!("undefined filetype: {}", code),
-            }
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        match unsafe { ffi::archive_entry_filetype(self.entry() as *mut _) } as u32 {
+            ffi::AE_IFBLK => FileType::BlockDevice,
+            ffi::AE_IFCHR => FileType::CharacterDevice,
+            ffi::AE_IFLNK => FileType::SymbolicLink,
+            ffi::AE_IFDIR => FileType::Directory,
+            ffi::AE_IFIFO => FileType::NamedPipe,
+            ffi::AE_IFMT => FileType::Mount,
+            ffi::AE_IFREG => FileType::RegularFile,
+            ffi::AE_IFSOCK => FileType::Socket,
+            code => unreachable!("undefined filetype: {}", code),
         }
     }
 
     fn hardlink(&self) -> Option<&str> {
         let c_str: &CStr = unsafe {
-            let ptr = ffi::archive_entry_hardlink(self.entry());
+            // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+            // modify the pointer, so they really should.
+            let ptr = ffi::archive_entry_hardlink(self.entry() as *mut _);
             if ptr.is_null() {
                 return None;
             }
             CStr::from_ptr(ptr)
         };
-        let buf: &[u8] = c_str.to_bytes();
-        Some(str::from_utf8(buf).unwrap())
+        c_str.to_str().ok()
+        //let buf: &[u8] = c_str.to_bytes();
+        //Some(str::from_utf8(buf).unwrap())
     }
 
     fn pathname(&self) -> &str {
-        let c_str: &CStr = unsafe { CStr::from_ptr(ffi::archive_entry_pathname(self.entry())) };
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        let c_str: &CStr =
+            unsafe { CStr::from_ptr(ffi::archive_entry_pathname(self.entry() as *mut _)) };
         let buf: &[u8] = c_str.to_bytes();
         str::from_utf8(buf).unwrap()
     }
 
+    fn mode(&self) -> u32 {
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        unsafe { ffi::archive_entry_mode(self.entry() as *mut _) }
+    }
+
     fn size(&self) -> i64 {
-        unsafe { ffi::archive_entry_size(self.entry()) }
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        unsafe { ffi::archive_entry_size(self.entry() as *mut _) }
     }
 
     fn symlink(&self) -> &str {
-        let c_str: &CStr = unsafe { CStr::from_ptr(ffi::archive_entry_symlink(self.entry())) };
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        let c_str: &CStr =
+            unsafe { CStr::from_ptr(ffi::archive_entry_symlink(self.entry() as *mut _)) };
         let buf: &[u8] = c_str.to_bytes();
         str::from_utf8(buf).unwrap()
     }
 
     fn set_filetype(&mut self, file_type: FileType) {
+        let file_type = match file_type {
+            FileType::BlockDevice => ffi::AE_IFBLK,
+            FileType::CharacterDevice => ffi::AE_IFCHR,
+            FileType::SymbolicLink => ffi::AE_IFLNK,
+            FileType::Directory => ffi::AE_IFDIR,
+            FileType::NamedPipe => ffi::AE_IFIFO,
+            FileType::Mount => ffi::AE_IFMT,
+            FileType::RegularFile => ffi::AE_IFREG,
+            FileType::Socket => ffi::AE_IFSOCK,
+        };
         unsafe {
-            let file_type = match file_type {
-                FileType::BlockDevice => ffi::AE_IFBLK,
-                FileType::CharacterDevice => ffi::AE_IFCHR,
-                FileType::SymbolicLink => ffi::AE_IFLNK,
-                FileType::Directory => ffi::AE_IFDIR,
-                FileType::NamedPipe => ffi::AE_IFIFO,
-                FileType::Mount => ffi::AE_IFMT,
-                FileType::RegularFile => ffi::AE_IFREG,
-                FileType::Socket => ffi::AE_IFSOCK,
-            };
-            ffi::archive_entry_set_filetype(self.entry(), file_type);
+            ffi::archive_entry_set_filetype(self.entry_mut(), file_type);
         }
     }
 
-    fn set_link(&mut self, path: &PathBuf) {
+    fn set_link<P: AsRef<Path>>(&mut self, path: P) {
         unsafe {
-            let c_str = CString::new(path.to_str().unwrap()).unwrap();
-            ffi::archive_entry_set_link(self.entry(), c_str.as_ptr());
+            let c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
+            ffi::archive_entry_set_link(self.entry_mut(), c_str.as_ptr());
         }
     }
 
-    fn set_pathname(&mut self, path: &PathBuf) {
+    fn set_pathname<P: AsRef<Path>>(&mut self, path: P) {
         unsafe {
-            let c_str = CString::new(path.to_str().unwrap()).unwrap();
-            ffi::archive_entry_set_pathname(self.entry(), c_str.as_ptr());
+            let c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
+            ffi::archive_entry_set_pathname(self.entry_mut(), c_str.as_ptr());
         }
     }
 }

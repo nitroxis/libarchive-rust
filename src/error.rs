@@ -1,8 +1,8 @@
+use archive;
 use std::error;
 use std::fmt;
-use archive;
 
-pub type ArchiveResult<T> = Result<T, ArchiveError>;
+pub type Result<T> = std::result::Result<T, ArchiveError>;
 
 #[derive(Debug)]
 pub struct ErrCode(pub i32);
@@ -22,34 +22,34 @@ pub enum ArchiveError {
 
 impl error::Error for ArchiveError {
     fn description(&self) -> &str {
-        match self {
-            &ArchiveError::Consumed => "Builder already consumed",
-            &ArchiveError::HeaderPosition => "Header position expected to be 0",
-            &ArchiveError::Sys(_, _) => "libarchive system error",
+        match *self {
+            ArchiveError::Consumed => "Builder already consumed",
+            ArchiveError::HeaderPosition => "Header position expected to be 0",
+            ArchiveError::Sys(_, _) => "libarchive system error",
         }
     }
 }
 
 impl fmt::Display for ArchiveError {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &ArchiveError::Consumed => write!(fmt, "Builder already consumed"),
-            &ArchiveError::HeaderPosition => write!(fmt, "Header position expected to be 0"),
-            &ArchiveError::Sys(ref code, ref msg) => {
+        match *self {
+            ArchiveError::Consumed => write!(fmt, "Builder already consumed"),
+            ArchiveError::HeaderPosition => write!(fmt, "Header position expected to be 0"),
+            ArchiveError::Sys(ref code, ref msg) => {
                 write!(fmt, "{} (libarchive err_code={})", msg, code)
             }
         }
     }
 }
 
-impl<'a> From<&'a archive::Handle> for ArchiveError {
-    fn from(handle: &'a archive::Handle) -> ArchiveError {
+impl<'a> From<&'a dyn archive::Handle> for ArchiveError {
+    fn from(handle: &'a dyn archive::Handle) -> ArchiveError {
         ArchiveError::Sys(handle.err_code(), handle.err_msg())
     }
 }
 
-impl<'a> From<&'a archive::Handle> for ArchiveResult<()> {
-    fn from(handle: &'a archive::Handle) -> ArchiveResult<()> {
+impl<'a> From<&'a dyn archive::Handle> for Result<()> {
+    fn from(handle: &'a dyn archive::Handle) -> Result<()> {
         match handle.err_code() {
             ErrCode(0) => Ok(()),
             _ => Err(ArchiveError::from(handle)),
