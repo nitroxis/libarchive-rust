@@ -204,6 +204,22 @@ pub trait Entry {
         unsafe { ffi::archive_entry_mode(self.entry() as *mut _) }
     }
 
+    fn gid(&self) -> i64 {
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        unsafe { ffi::archive_entry_gid(self.entry() as *mut _) }
+    }
+
+    fn uid(&self) -> i64 {
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
+        unsafe { ffi::archive_entry_uid(self.entry() as *mut _) }
+    }
+
+    fn time(&self) -> i64 {
+        unsafe { ffi::archive_entry_mtime(self.entry() as *mut _) }
+    }
+
     fn size(&self) -> i64 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
         // modify the pointer, so they really should.
