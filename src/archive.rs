@@ -5,6 +5,7 @@ use std::{default::Default, path::Path};
 use error::ErrCode;
 use libarchive3_sys::ffi;
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReadCompression {
     All,
     Bzip2,
@@ -19,6 +20,7 @@ pub enum ReadCompression {
     Xz,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReadFormat {
     SevenZip,
     All,
@@ -37,6 +39,7 @@ pub enum ReadFormat {
     Zip,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReadFilter {
     All,
     Bzip2,
@@ -55,6 +58,7 @@ pub enum ReadFilter {
     Xz,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum WriteFormat {
     SevenZip,
     ArBsd,
@@ -75,6 +79,7 @@ pub enum WriteFormat {
     Zip,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum WriteFilter {
     B64Encode,
     Bzip2,
@@ -91,6 +96,7 @@ pub enum WriteFilter {
     Xz,
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum FileType {
     BlockDevice,
     SymbolicLink,
@@ -217,6 +223,8 @@ pub trait Entry {
     }
 
     fn time(&self) -> i64 {
+        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+        // modify the pointer, so they really should.
         unsafe { ffi::archive_entry_mtime(self.entry() as *mut _) }
     }
 
@@ -266,6 +274,7 @@ pub trait Entry {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum ExtractOption {
     // The user and group IDs should be set on the restored file. By default, the user and group
     // IDs are not restored.
