@@ -126,33 +126,37 @@ pub trait Handle {
     /// This pointer dangles once the `archive` has been deallocated.
     unsafe fn handle_mut(&mut self) -> *mut ffi::Struct_archive;
 
+    /// Get the error code from the most recent libarchive function call
     fn err_code(&self) -> ErrCode {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         let code = unsafe { ffi::archive_errno(self.handle() as *mut _) };
         ErrCode(code)
     }
 
-    fn err_msg(&self) -> String {
+    /// Get a str containing the error message from the most recent libarchive function call
+    fn err_msg(&self) -> &str {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         let c_str = unsafe { CStr::from_ptr(ffi::archive_error_string(self.handle() as *mut _)) };
-        c_str.to_str().map(|x| x.to_owned()).unwrap()
+        c_str.to_str().unwrap()
     }
 }
 
 /// The trait representing an `archive_entry`
+///
+/// # Safety
+/// See [`Handle`](trait.Handle.html)
 pub trait Entry {
     /// Gives a *const to the internal `archive_entry` c struct
     ///
     /// # Safety
-    /// Implementors of this trait must also implement Handle. The pointer returned here points
-    /// into the archive struct. As lifetimes are not capable of expressing self-referential
-    /// structs (yet?) this must all be unsafe. This pointer dangles if the `archive` struct held
-    /// by the implementor of `Handle` is deallocated.
+    /// The pointer returned here points into the `archive` struct. As lifetimes are not capable of
+    /// expressing self-referential structs (yet?) this must all be unsafe. This pointer dangles 
+    /// if the `archive` struct held by the implementor of `Handle` is deallocated.
     ///
-    /// Most (all?) of the functions in libarchive take `T*`, not `const T*`, so this *const will
-    /// probably have to be cast to a *mut to use it. Do not pass that *mut to a function that may
+    /// Most (all?) of the functions in libarchive take `T*`, not `const T*`, so this `*const` will
+    /// probably have to be cast to a `*mut` to use it. Do not pass that `*mut` to a function that may
     /// modify it, as that is UB.
     unsafe fn entry(&self) -> *const ffi::Struct_archive_entry;
 
@@ -164,9 +168,10 @@ pub trait Entry {
     /// if the `archive` struct held by the implementor of `Handle` is deallocated.
     unsafe fn entry_mut(&mut self) -> *mut ffi::Struct_archive_entry;
 
+    /// Get the filetype of the entry.
     fn filetype(&self) -> FileType {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         match unsafe { ffi::archive_entry_filetype(self.entry() as *mut _) } as u32 {
             ffi::AE_IFBLK => FileType::BlockDevice,
             ffi::AE_IFCHR => FileType::CharacterDevice,
@@ -180,10 +185,11 @@ pub trait Entry {
         }
     }
 
+    /// Get the location of a hardlink, if it exists
     fn hardlink(&self) -> Option<&str> {
         let c_str: &CStr = unsafe {
             // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-            // modify the pointer, so they really should.
+            // modify the pointer, so this is sound.
             let ptr = ffi::archive_entry_hardlink(self.entry() as *mut _);
             if ptr.is_null() {
                 return None;
@@ -195,54 +201,66 @@ pub trait Entry {
         //Some(str::from_utf8(buf).unwrap())
     }
 
+    /// Get the pathname of the file the entry refers to
     fn pathname(&self) -> &str {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         let c_str: &CStr =
             unsafe { CStr::from_ptr(ffi::archive_entry_pathname(self.entry() as *mut _)) };
         let buf: &[u8] = c_str.to_bytes();
         str::from_utf8(buf).unwrap()
     }
 
+    /// Get the mode of the file
     fn mode(&self) -> u32 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         unsafe { ffi::archive_entry_mode(self.entry() as *mut _) }
     }
 
+    /// Get the id of the group that owns the file
     fn gid(&self) -> i64 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         unsafe { ffi::archive_entry_gid(self.entry() as *mut _) }
     }
 
+    /// Get the id of the user that owns the file
     fn uid(&self) -> i64 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         unsafe { ffi::archive_entry_uid(self.entry() as *mut _) }
     }
 
+    /// Get the `mtime` of the file (The time it was last modified) as a unix timestamp
     fn time(&self) -> i64 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         unsafe { ffi::archive_entry_mtime(self.entry() as *mut _) }
     }
 
+    /// Get the size of the file, in bytes
     fn size(&self) -> i64 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
+        // modify the pointer, so this is sound.
         unsafe { ffi::archive_entry_size(self.entry() as *mut _) }
     }
 
-    fn symlink(&self) -> &str {
-        // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
-        // modify the pointer, so they really should.
-        let c_str: &CStr =
-            unsafe { CStr::from_ptr(ffi::archive_entry_symlink(self.entry() as *mut _)) };
-        let buf: &[u8] = c_str.to_bytes();
-        str::from_utf8(buf).unwrap()
+    /// Get the destination of a symlink, if one exists
+    fn symlink(&self) -> Option<&str> {
+        match self.filetype() {
+            FileType::SymbolicLink => {
+                // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
+                // modify the pointer, so this is sound.
+                unsafe { CStr::from_ptr(ffi::archive_entry_symlink(self.entry() as *mut _)) }
+                    .to_str()
+                    .ok()
+            }
+            _ => None,
+        }
     }
 
+    /// Set the filetype of the file.
     fn set_filetype(&mut self, file_type: FileType) {
         let file_type = match file_type {
             FileType::BlockDevice => ffi::AE_IFBLK,
@@ -259,6 +277,7 @@ pub trait Entry {
         }
     }
 
+    /// Set the destination of a link
     fn set_link<P: AsRef<Path>>(&mut self, path: P) {
         unsafe {
             let c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
@@ -266,6 +285,7 @@ pub trait Entry {
         }
     }
 
+    /// Set the pathname of the file
     fn set_pathname<P: AsRef<Path>>(&mut self, path: P) {
         unsafe {
             let c_str = CString::new(path.as_ref().to_str().unwrap()).unwrap();
@@ -332,9 +352,9 @@ pub enum ExtractOption {
     // Default: Do not use HFS+ compression if it was not compressed
     // This has no effect except on Mac OS v10.6 or later
     HFSCompressionForced,
-    // Default: Do not reject entries with absolute paths */
+    // Default: Do not reject entries with absolute paths
     SecureNoAbsolutePaths,
-    // Default: Do not clear no-change flags when unlinking object */
+    // Default: Do not clear no-change flags when unlinking object
     ClearNoChangeFFlags,
 }
 
