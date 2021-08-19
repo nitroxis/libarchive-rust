@@ -104,3 +104,23 @@ fn extracting_a_reader_twice() {
     }
     assert_eq!(4, 4)
 }
+
+
+#[test]
+fn extracting_from_different_formats() {
+    let fixtures = vec!["sample.7z", "sample.rar", "sample_rar4.rar", "sample.zip", "sample.tar"];
+
+    for fixture in fixtures {
+        let archive = util::path::fixture(fixture);
+        let mut builder = reader::Builder::new();
+        builder.support_format(ReadFormat::All).ok();
+        builder.support_filter(ReadFilter::All).ok();
+        let mut reader = builder.open_file(archive).ok().unwrap();
+        assert_eq!(reader.header_position(), 0);
+        let mut writer = writer::Disk::new();
+        let tmp = tempfile::tempdir().expect("Created tempdir");
+        let path = tmp.path().to_str().expect("Get temp folder path");
+        let bytes = writer.write(&mut reader, Some(path)).expect("Write out contents");
+        assert_eq!(bytes, 14);
+    }
+}
