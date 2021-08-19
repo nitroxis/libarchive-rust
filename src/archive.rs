@@ -215,7 +215,7 @@ pub trait Entry {
     fn mode(&self) -> u32 {
         // SAFETY: Casting to *mut because these c functions take T* not const T*. They do not
         // modify the pointer, so this is sound.
-        unsafe { ffi::archive_entry_mode(self.entry() as *mut _) }
+        unsafe { ffi::archive_entry_mode(self.entry() as *mut _).into() }
     }
 
     /// Get the id of the group that owns the file
