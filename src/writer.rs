@@ -160,6 +160,7 @@ impl Disk {
         let mut buf = ptr::null();
         let mut size = 0;
         let mut offset = 0;
+        let mut total = 0;
 
         unsafe {
             loop {
@@ -169,13 +170,14 @@ impl Disk {
                     &mut size,
                     &mut offset,
                 ) {
-                    ffi::ARCHIVE_EOF => return Ok(size),
+                    ffi::ARCHIVE_EOF => return Ok(total + size),
                     ffi::ARCHIVE_OK => {
                         if ffi::archive_write_data_block(self.handle, buf, size, offset)
                             != ffi::ARCHIVE_OK as isize
                         {
                             return Err(ArchiveError::from(self as &dyn Handle));
                         }
+                        total += size;
                     }
                     _ => return Err(ArchiveError::from(reader as &dyn Handle)),
                 }
