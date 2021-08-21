@@ -28,7 +28,7 @@ Put this in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-libarchive = { git = "https://github.com/Sciencentistguy/libarchive-rust" }
+libarchive = { git = "https://github.com/AtlanticAccent/libarchive-rust" }
 ```
 
 ## Contributing
