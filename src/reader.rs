@@ -395,6 +395,12 @@ impl Builder {
         FileReader::open(self, file)
     }
 
+    /// Open a file descriptor with this builder, consuming it and returning a `FdReader`
+    pub fn open_fd(self, file: File) -> Result<FdReader> {
+        self.check_consumed()?;
+        FdReader::open(self, file)
+    }
+
     /// Open a stream with this builder, consuming it and returning a `StreamReader`
     pub fn open_stream<T: Any + Read>(self, src: T) -> Result<StreamReader> {
         self.check_consumed()?;
