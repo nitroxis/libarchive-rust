@@ -1,8 +1,10 @@
 use std::any::Any;
 use std::default::Default;
 use std::ffi::CString;
+use std::fs::File;
 use std::io::{self, Read};
 use std::mem;
+use std::os::fd::{FromRawFd, IntoRawFd};
 use std::path::Path;
 use std::ptr;
 use std::slice;
@@ -93,6 +95,13 @@ pub struct StreamReader {
     _pipe: Box<Pipe>,
 }
 
+/// A reader that reads from a file descriptor.
+pub struct FdReader {
+    handle: *mut ffi::Struct_archive,
+    entry: ReaderEntry,
+    fd: i32,
+}
+
 /// A struct that allows configuration of the reader before it is created.
 pub struct Builder {
     handle: *mut ffi::Struct_archive,
@@ -171,6 +180,52 @@ impl Drop for FileReader {
     fn drop(&mut self) {
         unsafe {
             ffi::archive_read_free(self.handle_mut());
+        }
+    }
+}
+
+impl FdReader {
+    /// Open a file with a builder (for configuration) and a file path.
+    fn open(mut builder: Builder, file: File) -> Result<Self> {
+        builder.check_consumed()?;
+        let fd = file.into_raw_fd();
+        unsafe {
+            match ffi::archive_read_open_fd(builder.handle_mut(), fd, BLOCK_SIZE) {
+                ffi::ARCHIVE_OK => {
+                    builder.consume();
+                    Ok(Self {
+                        handle: builder.handle_mut(),
+                        entry: ReaderEntry::default(),
+                        fd,
+                    })
+                }
+                _ => Err(ArchiveError::from(&builder as &dyn Handle)),
+            }
+        }
+    }
+}
+
+impl Handle for FdReader {
+    unsafe fn handle(&self) -> *const ffi::Struct_archive {
+        self.handle as *const _
+    }
+
+    unsafe fn handle_mut(&mut self) -> *mut ffi::Struct_archive {
+        self.handle
+    }
+}
+
+impl Reader for FdReader {
+    fn entry(&mut self) -> &mut ReaderEntry {
+        &mut self.entry
+    }
+}
+
+impl Drop for FdReader {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::archive_read_free(self.handle_mut());
+            drop(File::from_raw_fd(self.fd));
         }
     }
 }
